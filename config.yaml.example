@@ -37,6 +37,13 @@ max_attempts: 3
 send_confirmation: true
 confirmation_subject: "Vielen Dank - Ihre E-Mail wurde zugestellt"
 
+# --- Harte Blacklist (CLI: mailshield block <adresse>) ---------------------
+reject_subject: "Ihre E-Mail wurde abgewiesen"
+reject_message: >-
+  Ihre E-Mail wurde von MailShield verworfen und geloescht. Sie haben sich nicht
+  an die Regeln gehalten und wurden gesperrt. Bitte verwenden Sie andere
+  Kommunikationswege.
+
 # --- Backscatter-/Loop-Schutz ---------------------------------------------
 # Envelope-Sender, die NIE eine Challenge bekommen (Bounces etc.).
 null_sender_markers: ["", "<>", "mailer-daemon", "postmaster"]

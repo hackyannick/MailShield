@@ -49,6 +49,12 @@ an dieser Stelle die ausgehenden Challenges (siehe `DKIM-SETUP.md`).
   zusaetzlich `max_challenges_per_hour` als Deckel
 - **Manueller Bypass** fuer legitime Maschinen-Mail (2FA, Passwort-Resets) ueber
   die CLI
+- **Harte Blacklist:** `mailshield block <adresse>` sperrt einen Absender und
+  loescht seine Quarantaene. Beim **naechsten** Zustellversuch bekommt er **genau
+  einmal** eine Ablehnungs-Mail (rotes Kreuz), danach wird jede Mail still
+  verworfen. `--no-notify` sperrt komplett stumm.
+- **Erfolgs-/Ablehnungs-Mails** im gleichen Layout wie die Challenge, mit
+  programmatisch erzeugtem gruenem Haken bzw. rotem Kreuz (inline, CID)
 - **Dynamische Eskalation:** verifizierte Absender bei Verdacht erneut challengen
 - **DKIM-ready:** OpenDKIM-Vorlagen fuer Multi-Domain-Signierung (getrennt vom
   vorhandenen Mailserver-Signer)
@@ -107,7 +113,8 @@ mailshield list                 # Quarantaene
 mailshield senders              # Absender + Status
 mailshield show alice@extern.de # Details
 mailshield release no-reply@bank.de   # manueller Bypass (2FA/Reset freigeben)
-mailshield reset alice@extern.de      # neue Challenge erzwingen
+mailshield reset alice@extern.de      # neue Challenge erzwingen / entsperren
+mailshield block spammer@bad.tld      # hart sperren + Ablehnungs-Mail
 mailshield cleanup --days 30          # alte Quarantaene aufraeumen
 ```
 
@@ -170,5 +177,3 @@ MIT - siehe [LICENSE](LICENSE).
 Bedenke bei zeitkritischer Post (z. B. Fristen im Mahn-/Inkassowesen), dass
 quarantaenierte Mail auf die manuelle Freigabe wartet - ein regelmaessiger Blick
 in `mailshield list` gehoert dazu.*
-# MailShield
-# MailShield

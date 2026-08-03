@@ -48,6 +48,13 @@ class Config:
     max_attempts: int = 3
     send_confirmation: bool = True
     confirmation_subject: str = "Vielen Dank - Ihre E-Mail wurde zugestellt"
+    # Harte Blacklist: Betreff + Text der Ablehnungs-/Sperr-Mail (rotes Kreuz)
+    reject_subject: str = "Ihre E-Mail wurde abgewiesen"
+    reject_message: str = (
+        "Ihre E-Mail wurde von MailShield verworfen und geloescht. Sie haben sich "
+        "nicht an die Regeln gehalten und wurden gesperrt. Bitte verwenden Sie andere "
+        "Kommunikationswege."
+    )
 
     # Backscatter-/Loop-Schutz
     null_sender_markers: List[str] = field(

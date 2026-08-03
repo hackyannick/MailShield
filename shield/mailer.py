@@ -10,6 +10,8 @@ import smtplib
 from email.message import EmailMessage
 from email.utils import formatdate, make_msgid
 
+from . import icons
+
 
 def _relay():
     from .config import load_config
@@ -83,8 +85,27 @@ def build_challenge(cfg, to_addr: str, reply_addr: str, code: str,
     return msg
 
 
+def _badge_layout(cid_ref: str, accent: str, heading: str,
+                  intro_html: str, after_html: str = "") -> str:
+    """Gemeinsames Layout fuer Bestaetigung/Ablehnung: zentriertes Badge in einer
+    Box, farbige Ueberschrift, Textabsaetze - im Stil der Challenge-Mail."""
+    return f"""\
+<html><head><meta charset="utf-8"></head>
+<body style="font-family:Arial,Helvetica,sans-serif;color:#222;max-width:520px">
+  <h2 style="margin:0 0 8px;color:{accent}">{heading}</h2>
+  {intro_html}
+  <div style="margin:16px 0;padding:18px;border:1px solid #ddd;border-radius:8px;
+              background:#fafafa;text-align:center">
+    <img src="cid:{cid_ref}" alt="" width="72" height="72" style="max-width:72px"/>
+  </div>
+  {after_html}
+  <p style="color:#777;font-size:12px">Automatische Nachricht von MailShield.</p>
+</body></html>"""
+
+
 def build_confirmation(cfg, to_addr: str, delivered: int,
                        domain: str | None = None) -> EmailMessage:
+    """Erfolgs-/Freischaltungs-Mail mit gruenem Haken (inline, CID)."""
     domain = domain or cfg.primary_domain
     label = cfg.domain_labels.get(domain, cfg.challenge_from_name)
     msg = EmailMessage()
@@ -95,11 +116,62 @@ def build_confirmation(cfg, to_addr: str, delivered: int,
     msg["Message-ID"] = make_msgid(domain=domain)
     msg["Auto-Submitted"] = "auto-replied"
     msg["X-Auto-Response-Suppress"] = "All"
-    plural = "n" if delivered != 1 else ""
-    msg.set_content(
-        "Vielen Dank. Ihre Adresse ist nun freigeschaltet.\n"
-        f"{delivered} zurückgehaltene E-Mail{plural} wurde{plural} soeben zugestellt.\n"
+
+    cid = make_msgid(domain=domain)
+    cid_ref = cid[1:-1]
+    nplural = "s" if delivered != 1 else ""     # E-Mail(s)
+    vplural = "n" if delivered != 1 else ""      # wurde(n)
+
+    text = (
+        "Freigeschaltet\n"
+        "==============\n\n"
+        "Vielen Dank – Ihre Adresse ist nun freigeschaltet.\n"
+        f"{delivered} zurückgehaltene E-Mail{nplural} wurde{vplural} soeben zugestellt.\n"
+        "Kuenftige Nachrichten werden ohne weitere Pruefung zugestellt.\n"
     )
+    html = _badge_layout(
+        cid_ref, "#2e7d32", "Freigeschaltet",
+        "<p>Vielen Dank – Ihre Adresse ist nun freigeschaltet.</p>",
+        f"<p>{delivered} zur\u00fcckgehaltene E-Mail{nplural} wurde{vplural} soeben "
+        "zugestellt. K\u00fcnftige Nachrichten werden ohne weitere Pr\u00fcfung "
+        "zugestellt.</p>",
+    )
+
+    msg.set_content(text)
+    msg.add_alternative(html, subtype="html")
+    msg.get_payload()[1].add_related(icons.check_png(), maintype="image",
+                                     subtype="png", cid=cid)
+    return msg
+
+
+def build_rejection(cfg, to_addr: str, domain: str | None = None) -> EmailMessage:
+    """Ablehnungs-/Sperr-Mail mit rotem Kreuz (inline, CID). Terminaler Hinweis -
+    keine Antwort vorgesehen."""
+    domain = domain or cfg.primary_domain
+    label = cfg.domain_labels.get(domain, cfg.challenge_from_name)
+    msg = EmailMessage()
+    msg["From"] = f"{label} <{cfg.verify_localpart}@{domain}>"
+    msg["To"] = to_addr
+    msg["Subject"] = cfg.reject_subject
+    msg["Date"] = formatdate(localtime=True)
+    msg["Message-ID"] = make_msgid(domain=domain)
+    msg["Auto-Submitted"] = "auto-replied"
+    msg["X-Auto-Response-Suppress"] = "All"
+    msg["Precedence"] = "auto_reply"
+
+    cid = make_msgid(domain=domain)
+    cid_ref = cid[1:-1]
+
+    text = ("Gesperrt\n========\n\n" + cfg.reject_message + "\n")
+    html = _badge_layout(
+        cid_ref, "#c62828", "Gesperrt",
+        f"<p>{cfg.reject_message}</p>",
+    )
+
+    msg.set_content(text)
+    msg.add_alternative(html, subtype="html")
+    msg.get_payload()[1].add_related(icons.cross_png(), maintype="image",
+                                     subtype="png", cid=cid)
     return msg
 
 

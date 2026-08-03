@@ -112,8 +112,33 @@ def allowlist(email: str) -> None:
 
 
 def reset_sender(email: str) -> None:
-    """Zurueck auf 'unknown' -> bei naechster Mail wird neu gechallenget."""
+    """Zurueck auf 'unknown' -> bei naechster Mail wird neu gechallenget
+    (dient auch zum Entsperren eines geblockten Absenders)."""
     _conn.execute("DELETE FROM senders WHERE email = ?", (email.lower(),))
+    _conn.commit()
+
+
+def blocklist(email: str) -> None:
+    """Harte Blacklist: Absender wird gesperrt. Die Ablehnungs-Mail wird NICHT
+    hier verschickt, sondern einmalig beim naechsten Zustellversuch (Filter)."""
+    email = email.lower()
+    now = time.time()
+    _conn.execute(
+        "INSERT INTO senders(email,status,token,captcha_answer,created_at,updated_at)"
+        " VALUES (?, 'blocked', NULL, NULL, ?, ?)"
+        " ON CONFLICT(email) DO UPDATE SET status='blocked', token=NULL,"
+        " captcha_answer=NULL, updated_at=excluded.updated_at",
+        (email, now, now),
+    )
+    _conn.commit()
+
+
+def mark_block_notified(email: str) -> None:
+    """Nach der einmaligen Ablehnung: auf 'blocked_notified' setzen."""
+    _conn.execute(
+        "UPDATE senders SET status='blocked_notified', updated_at=? WHERE email=?",
+        (time.time(), email.lower()),
+    )
     _conn.commit()
 
 

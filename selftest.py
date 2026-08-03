@@ -202,6 +202,46 @@ db.connect(load_config().db_path)
 q = len(db.all_pending())
 check(q == 6, f"spam-welle: alle 6 Mails quarantaeniert - kein Verlust (waren {q})")
 
+# 14) Harte Blacklist: 1. Mail -> genau 1x Ablehnung, 2. Mail -> still verworfen
+os.environ["MAILSHIELD_CONFIG"] = cfgpath
+db.connect(load_config().db_path)
+db.blocklist("boese@spammer.tld")
+RELAYED.clear(); SENT.clear()
+# erste Mail nach dem Sperren -> Ablehnung (rotes Kreuz) genau einmal
+run("boese@spammer.tld", ["boss@hackdv.com"],
+    mail("boese@spammer.tld", "boss@hackdv.com", "Spam", "kauf jetzt"))
+check(len(SENT) == 1 and len(RELAYED) == 0, "blacklist: 1. Mail -> 1x Ablehnung, kein Relay")
+rej_html = SENT[0][2].get_body(preferencelist=("html",)).get_content()
+check("Gesperrt" in rej_html or "gesperrt" in rej_html.lower(),
+      "blacklist: Ablehnungsmail enthaelt Sperr-Hinweis")
+db.connect(load_config().db_path)
+check(db.get_sender("boese@spammer.tld")["status"] == "blocked_notified",
+      "blacklist: nach Ablehnung -> blocked_notified")
+# zweite Mail -> Funkstille
+SENT.clear(); RELAYED.clear()
+run("boese@spammer.tld", ["boss@hackdv.com"],
+    mail("boese@spammer.tld", "boss@hackdv.com", "Spam2", "nochmal"))
+check(len(SENT) == 0 and len(RELAYED) == 0, "blacklist: 2. Mail -> still verworfen (keine weitere Ablehnung)")
+check(len(db.pending_for("boese@spammer.tld")) == 0, "blacklist: nichts quarantaeniert")
+
+# 15) Ablehnungs-Mail (rotes Kreuz) korrekt aufgebaut
+from shield import mailer as _m
+rej = _m.build_rejection(load_config(), "boese@spammer.tld", "hackdv.com")
+rhtml = rej.get_body(preferencelist=("html",)).get_content()
+rimg = [p for p in rej.walk() if p.get_content_maintype() == "image"]
+check("cid:" in rhtml and len(rimg) == 1 and rimg[0].get_content_disposition() == "inline",
+      "blacklist: Ablehnungs-Mail hat inline rotes Kreuz (CID)")
+check("gesperrt" in rej.get_body(preferencelist=("plain",)).get_content().lower(),
+      "blacklist: Ablehnungstext enthaelt Sperr-Hinweis")
+
+# 16) Bestaetigungs-Mail (gruener Haken) korrekt aufgebaut
+conf = _m.build_confirmation(load_config(), "carol@extern.de", 2, "hackdv.com")
+chtml = conf.get_body(preferencelist=("html",)).get_content()
+cimg = [p for p in conf.walk() if p.get_content_maintype() == "image"]
+check("cid:" in chtml and len(cimg) == 1 and cimg[0].get_content_disposition() == "inline",
+      "erfolg: Bestaetigungs-Mail hat inline gruenen Haken (CID)")
+check("freigeschaltet" in chtml.lower(), "erfolg: Bestaetigung nennt Freischaltung")
+
 print()
 print("ERGEBNIS:", "ALLE TESTS BESTANDEN" if ok else "FEHLER")
 sys.exit(0 if ok else 1)

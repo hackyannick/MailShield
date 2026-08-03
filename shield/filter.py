@@ -323,6 +323,27 @@ def _handle_inbound(cfg: Config, sender: str, recipients, raw: bytes,
     row = db.get_sender(sender)
     status = row["status"] if row else "unknown"
 
+    # Harte Blacklist:
+    #  - status 'blocked'          -> genau EINMAL Ablehnung senden, dann merken
+    #  - status 'blocked_notified' -> jede weitere Mail still verwerfen
+    # Kein Ping-Pong: die Ablehnung geht pro gesperrtem Absender nur ein einziges Mal
+    # raus (analog zur Challenge), danach Funkstille.
+    if status == "blocked_notified":
+        _log(syslog.LOG_INFO, f"{sender}: blockiert -> Mail verworfen")
+        return 0
+    if status == "blocked":
+        domain = row["challenge_domain"] or cfg.primary_domain
+        if not _is_null_sender(cfg, sender) and not _looks_automated(msg):
+            try:
+                mailer.send(cfg, mailer.build_rejection(cfg, sender, domain))
+                _log(syslog.LOG_INFO, f"{sender}: blockiert -> Ablehnung gesendet (1x)")
+            except Exception as e:
+                _log(syslog.LOG_ERR, f"Ablehnung an {sender} fehlgeschlagen: {e}")
+        else:
+            _log(syslog.LOG_INFO, f"{sender}: blockiert (Null-Sender/automatisiert, keine Ablehnung)")
+        db.mark_block_notified(sender)      # ab jetzt still verwerfen
+        return 0
+
     # Dynamische Eskalation: verifizierten Absender bei Verdacht zuruckstufen.
     if status == "verified" and cfg.escalation_enabled and _is_suspicious(cfg, msg):
         _log(syslog.LOG_INFO,

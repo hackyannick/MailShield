@@ -94,10 +94,37 @@ def cmd_allow(cfg, args):
 
 
 def cmd_reset(cfg, args):
-    """Zuruecksetzen -> naechste Mail loest neue Challenge aus (Eskalation)."""
+    """Zuruecksetzen -> naechste Mail loest neue Challenge aus (auch: entsperren)."""
     db.connect(cfg.db_path)
     db.reset_sender(args.email.lower())
-    print(f"{args.email.lower()}: zurueckgesetzt (unknown).")
+    print(f"{args.email.lower()}: zurueckgesetzt (unknown / entsperrt).")
+
+
+def cmd_block(cfg, args):
+    """Harte Blacklist: sperren + Quarantaene loeschen. Die Ablehnungs-Mail
+    (rotes Kreuz) geht EINMALIG beim naechsten Zustellversuch raus - nicht jetzt."""
+    db.connect(cfg.db_path)
+    email = args.email.lower()
+
+    removed = 0
+    for q in db.pending_for(email):
+        try:
+            os.remove(q["path"])
+        except OSError:
+            pass
+        db.delete_quarantine(q["id"])
+        removed += 1
+
+    if args.no_notify:
+        db.blocklist(email)
+        db.mark_block_notified(email)       # direkt still -> nie eine Ablehnung
+        note = "still gesperrt (keine Ablehnung)"
+    else:
+        db.blocklist(email)
+        note = "gesperrt - Ablehnung folgt beim naechsten Zustellversuch (1x)"
+
+    print(f"{email}: {note}, {removed} Quarantaene-Mail(s) geloescht.")
+    print("  Zum Entsperren:  mailshield reset " + email)
 
 
 def cmd_show(cfg, args):
@@ -159,7 +186,8 @@ Beispiele:
   mailshield show alice@extern.de       Details zu einem Absender
   mailshield release no-reply@bank.de   manueller Bypass (2FA/Reset freigeben)
   mailshield allow chef@partner.de      nur auf Allowlist setzen
-  mailshield reset alice@extern.de      neue Challenge erzwingen
+  mailshield reset alice@extern.de      neue Challenge erzwingen / entsperren
+  mailshield block spammer@bad.tld      hart sperren + Ablehnungs-Mail senden
   mailshield cleanup --days 30          alte Quarantaene aufraeumen
   mailshield gen-captcha -o test.png    Test-CAPTCHA erzeugen
 
@@ -200,6 +228,12 @@ def build_parser():
     cl.add_argument("--days", type=int, default=None,
                     help="Aufbewahrung in Tagen (Default: retention_days aus config)")
     cl.set_defaults(fn=cmd_cleanup)
+
+    bl = sub.add_parser("block", help="Harte Blacklist: sperren + Ablehnungs-Mail")
+    bl.add_argument("email")
+    bl.add_argument("--no-notify", action="store_true",
+                    help="nur sperren, keine Ablehnungs-Mail senden")
+    bl.set_defaults(fn=cmd_block)
     return p
 
 
