@@ -1,0 +1,89 @@
+# =====================================================================
+#  MailShield – Ergaenzungen fuer /etc/postfix/main.cf
+#  Umgebung: MTA mail.hackdv.com (10.0.201.5)  ->  Exchange 10.0.201.6
+#  IPs ggf. anpassen.
+# =====================================================================
+
+# --- Identitaet -----------------------------------------------------
+myhostname = mail.hackdv.com
+mydomain   = hackdv.com
+myorigin   = $mydomain
+inet_interfaces = all
+inet_protocols = all
+
+# WICHTIG: die geschuetzte Domain ist RELAY-Domain, NICHT mydestination.
+# (mydestination wuerde bedeuten "lokal zustellen" – wir wollen an Exchange
+#  weiterreichen.)
+mydestination = localhost
+relay_domains = hackdv.com, sled-compliance.com
+transport_maps = hash:/etc/postfix/transport
+# noetig fuer verify+<token>@hackdv.com
+recipient_delimiter = +
+
+# =====================================================================
+#  OPEN-RELAY-SCHUTZ  (bitte genau so uebernehmen)
+# =====================================================================
+# mynetworks BEWUSST nur Loopback: der MTA relayed fuer NIEMANDEN im LAN.
+# Nur der lokale Reinjection-Dienst (:10026, 127.0.0.1) darf "relayen".
+# Wuerde hier das 10.0.201.0/24 stehen, koennte JEDER Host im Exchange-Netz
+# ueber den MTA nach aussen relayen -> das vermeiden wir.
+mynetworks = 127.0.0.0/8, [::1]/128
+
+# Primaerer Relay-Schutz (Postfix >= 2.10 / Debian 13): unabhaengig von
+# recipient_restrictions ausgewertet. permit nur Loopback, sonst muss das
+# Ziel in relay_domains/mydestination liegen -> kein offenes Relay moeglich.
+smtpd_relay_restrictions =
+    permit_mynetworks,
+    reject_unauth_destination
+
+smtpd_recipient_restrictions =
+    permit_mynetworks,
+    reject_non_fqdn_recipient,
+    reject_unknown_recipient_domain,
+    reject_unauth_destination,
+    reject_rbl_client zen.spamhaus.org,
+    reject_rbl_client bl.spamcop.net
+
+# Grundlegende Absender-/HELO-Hygiene:
+smtpd_helo_required = yes
+smtpd_helo_restrictions =
+    permit_mynetworks,
+    reject_invalid_helo_hostname
+smtpd_sender_restrictions =
+    permit_mynetworks,
+    reject_non_fqdn_sender,
+    reject_unknown_sender_domain
+
+# =====================================================================
+#  SPAM-VORFILTER VOR DER CHALLENGE  (Backscatter-Schutz)
+# =====================================================================
+# Ohne SMTP-Inspection auf der Firewall ist MailShield die einzige Vorstufe.
+# Diese Checks werfen offensichtlichen Bot-Spam schon zur SMTP-Zeit ab, BEVOR
+# der Content-Filter laeuft und eine Challenge erzeugen wuerde. Damit gehen
+# Challenges praktisch nur noch an Absender, die einen echten Zustellversuch
+# von einem sauber konfigurierten Host machen.
+smtpd_client_restrictions =
+    permit_mynetworks,
+    reject_unknown_client_hostname
+# HINWEIS: reject_unknown_client_hostname ist streng (verlangt Forward-confirmed
+# rDNS). Schlecht konfigurierte, aber legitime Kleinserver koennen durchfallen.
+# Wenn das zu hart ist, die mildere Variante nehmen (nur PTR statt FCrDNS):
+#   smtpd_client_restrictions = permit_mynetworks, reject_unknown_reverse_client_hostname
+#
+# Spamhaus ZEN ist fuer kleine/kostenlose Volumina frei; bei hohem Aufkommen
+# ist ein Data-Query-Key noetig. Weitere sinnvolle RBLs bei Bedarf ergaenzen.
+
+# --- TLS: STARTTLS terminiert jetzt am MTA (Zert fuer mail.hackdv.com) -----
+smtpd_tls_cert_file = /etc/ssl/mail.hackdv.com/fullchain.pem
+smtpd_tls_key_file  = /etc/ssl/mail.hackdv.com/privkey.pem
+smtpd_tls_security_level = may
+smtpd_tls_loglevel = 1
+# opportunistisch nach aussen
+smtp_tls_security_level = may
+
+# --- Content-Filter: jede Mail durch MailShield --------------------
+content_filter = mailshield:dummy
+
+# --- Groessen/Robustheit (optional) --------------------------------
+# 50 MB, an Exchange anpassen
+message_size_limit = 52428800

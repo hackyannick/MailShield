@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Laufzeit-/Zustandsdaten (NIE committen)
+config.yaml
+*.db
+*.db-wal
+*.db-shm
+quarantine/
+/var/lib/mailshield/
+
+# Secrets / Schluessel (NIE committen!)
+*.private
+*.key
+dkimkeys/
+*.pem
+
+# lokale Test-Artefakte
+captcha.png
+test.png
+*.eml

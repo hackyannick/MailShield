@@ -1,0 +1,2 @@
+shield._domainkey.hackdv.com            hackdv.com:shield:/etc/dkimkeys/hackdv.com.private
+shield._domainkey.sled-compliance.com   sled-compliance.com:shield:/etc/dkimkeys/sled-compliance.com.private

@@ -1,0 +1,25 @@
+# =====================================================================
+#  MailShield – Ergaenzungen fuer /etc/postfix/master.cf
+# =====================================================================
+
+# 1) Pipe-Service: uebergibt jede Mail an den Filter.
+#    null_sender bleibt auf Default (MAILER-DAEMON) -> der Filter erkennt das
+#    als Null-Sender/Bounce und stellt dafuer NIE eine Challenge (Backscatter-Schutz).
+mailshield unix -       n       n       -       10      pipe
+  flags=Rq user=mailshield argv=/usr/bin/python3 /opt/mailshield/run_filter.py ${sender} ${recipient}
+
+# 2) Bypass-/Reinjection-smtpd, NUR auf 127.0.0.1:10026 (Loopback!).
+#    Hierueber speist der Filter Challenge-Mails und freigegebene Original-Mails
+#    ein – OHNE erneuten Content-Filter (Loop-Schutz).
+#    OPEN-RELAY-SCHUTZ: Bindung an Loopback + mynetworks=Loopback bedeutet, dass
+#    NUR lokale Prozesse relayen koennen. Von aussen ist :10026 nicht erreichbar.
+127.0.0.1:10026 inet n  -       n       -       10      smtpd
+  -o content_filter=
+  -o receive_override_options=no_unknown_recipient_checks,no_header_body_checks,no_milters
+  -o smtpd_helo_restrictions=
+  -o smtpd_client_restrictions=
+  -o smtpd_sender_restrictions=
+  -o smtpd_relay_restrictions=permit_mynetworks,reject
+  -o smtpd_recipient_restrictions=permit_mynetworks,reject
+  -o mynetworks=127.0.0.0/8,[::1]/128
+  -o smtpd_authorized_xforward_hosts=127.0.0.0/8,[::1]/128

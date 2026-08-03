@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# MailShield CLI-Wrapper. Nach /usr/local/bin/mailshield kopieren (chmod +x).
+# Reicht alle Argumente an die Python-CLI durch.
+exec /usr/bin/python3 /opt/mailshield/run_cli.py "$@"

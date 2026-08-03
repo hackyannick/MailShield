@@ -1,0 +1,6 @@
+# /etc/postfix/transport   (danach:  postmap /etc/postfix/transport)
+# Eckige Klammern = kein MX-Lookup, direkt an die Exchange-IP.
+# Beide Mandanten-Domains terminieren am selben Exchange (Mandantentrennung
+# erfolgt intern im Exchange ueber Accepted Domains / Address Book Policies).
+hackdv.com            smtp:[10.0.201.6]:25
+sled-compliance.com   smtp:[10.0.201.6]:25

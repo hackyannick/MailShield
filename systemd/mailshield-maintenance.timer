@@ -1,0 +1,10 @@
+[Unit]
+Description=Taeglicher MailShield-Cleanup
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=1h
+
+[Install]
+WantedBy=timers.target

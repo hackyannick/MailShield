@@ -1,0 +1,55 @@
+# MailShield – Konfiguration
+# Kopieren nach /opt/mailshield/config.yaml und anpassen.
+
+# --- Speicher --------------------------------------------------------------
+db_path: /var/lib/mailshield/state.db
+quarantine_dir: /var/lib/mailshield/quarantine
+
+# --- Domains ---------------------------------------------------------------
+# Alle Domains, die dieser MTA vor Exchange schuetzt (Mandanten).
+domains:
+  - hackdv.com
+  - sled-compliance.com
+# Fallback-Domain, falls sich der Mandant eines Empfaengers nicht bestimmen laesst.
+# Die Challenge geht ansonsten IMMER aus der Domain des jeweiligen Empfaengers raus
+# (Mandantentrennung), also verify+<token>@<empfaenger-domain>.
+primary_domain: hackdv.com
+# Lokaler Teil der Verify-Adresse: verify+<token>@<domain>
+verify_localpart: verify
+
+# --- Reinjection / Bypass-smtpd (siehe postfix/master.cf.snippet) ----------
+reinject_host: 127.0.0.1
+reinject_port: 10026
+
+# --- CAPTCHA ---------------------------------------------------------------
+captcha_length: 6
+captcha_width: 280
+captcha_height: 90
+
+# --- Challenge-Mail --------------------------------------------------------
+# Anzeigename (From) je Mandant. Fallback ist challenge_from_name.
+challenge_from_name: "Zustellungsprüfung"
+domain_labels:
+  hackdv.com: "hackdv.com Zustellungsprüfung"
+  sled-compliance.com: "SLED Compliance Zustellungsprüfung"
+challenge_subject: "Bestätigung erforderlich, um Ihre E-Mail zuzustellen"
+max_attempts: 3
+send_confirmation: true
+confirmation_subject: "Vielen Dank - Ihre E-Mail wurde zugestellt"
+
+# --- Backscatter-/Loop-Schutz ---------------------------------------------
+# Envelope-Sender, die NIE eine Challenge bekommen (Bounces etc.).
+null_sender_markers: ["", "<>", "mailer-daemon", "postmaster"]
+# Obergrenze neuer Challenges pro Stunde (begrenzt Backscatter bei Spam-Wellen).
+max_challenges_per_hour: 200
+# Aufbewahrung fuer 'cleanup' (Tage): aeltere Quarantaene-Mails + verwaiste
+# 'waiting'-Absender werden entfernt.
+retention_days: 30
+
+# --- Dynamische Eskalation -------------------------------------------------
+# Verifizierte Absender bei Verdacht auf Bot-Uebernahme erneut challengen.
+escalation_enabled: false
+suspicion_patterns:
+  - "(?i)auto[- ]?reply"
+  - "(?i)ticket\\s*#?\\d+"
+  - "(?i)do not reply"

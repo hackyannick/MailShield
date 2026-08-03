@@ -1,0 +1,5 @@
+# Absender, deren Mail SIGNIERT (statt verifiziert) wird.
+# Die Challenges werden lokal ueber 127.0.0.1 -> :10026 eingeliefert.
+127.0.0.1
+::1
+localhost

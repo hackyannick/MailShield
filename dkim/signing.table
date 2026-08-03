@@ -1,0 +1,5 @@
+# From-Adresse  ->  Key-Name.  Nur unsere Mandanten-Domains werden signiert;
+# durchgereichte Fremd-Mail (anderer From) bleibt unsigniert.
+# Selector "shield" - bewusst getrennt vom Exchange-Signer (hkdv / ds).
+*@hackdv.com            shield._domainkey.hackdv.com
+*@sled-compliance.com   shield._domainkey.sled-compliance.com

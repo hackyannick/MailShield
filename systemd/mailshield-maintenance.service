@@ -1,0 +1,17 @@
+[Unit]
+Description=MailShield maintenance (Quarantaene-/DB-Cleanup)
+Documentation=file:/opt/mailshield/README.md
+After=postfix.service
+
+[Service]
+Type=oneshot
+User=mailshield
+Group=mailshield
+Environment=MAILSHIELD_CONFIG=/opt/mailshield/config.yaml
+ExecStart=/usr/bin/python3 /opt/mailshield/run_cli.py cleanup
+# Haertung (optional, aber sinnvoll):
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/mailshield
