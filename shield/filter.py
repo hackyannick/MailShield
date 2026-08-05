@@ -43,24 +43,83 @@ def _new_token() -> str:
 
 
 def _is_null_sender(cfg: Config, sender: str) -> bool:
+    """Bounce-/Zustellsystem-Absender, die niemals eine Challenge bekommen duerfen.
+    Neben dem klassischen Null-Sender erkennt dies auch VERP-Bounce-Adressen
+    (bounce+..., msprvs1=...-bounces-..., srs0=..., lange Hex-Localparts), an die
+    eine Challenge nur Backscatter erzeugt und die Domain-Reputation schaedigt."""
     s = sender.strip().lower()
     if s in {m.lower() for m in cfg.null_sender_markers}:
         return True
     local = s.split("@", 1)[0]
-    return local in {"mailer-daemon", "postmaster"}
+    if local in {"mailer-daemon", "postmaster"}:
+        return True
+    # VERP-/Bounce-Muster im Localpart
+    if re.match(r"^(bounce|bounces|bounce-|return|prvs|msprvs\d*|srs\d*)[-+=_.]", local):
+        return True
+    if "bounce" in local and any(c in local for c in "+=-"):
+        return True
+    # Reine Hex-/Zufalls-Localparts ab 24 Zeichen (Notification-/Tracking-Systeme)
+    if len(local) >= 24 and re.fullmatch(r"[0-9a-f]+", local):
+        return True
+    return False
 
 
 def _match_verify(cfg: Config, rcpt: str):
+    """Erkennt Verify-Empfaenger. Rueckgabe:
+         None -> keine Verify-Adresse
+         ""   -> feste Adresse verify@<domain> (Zuordnung ueber Message-ID/Absender)
+         "<token>" -> Subadressierung verify+<token>@<domain>
+    """
     addr = parseaddr(rcpt)[1].lower()
     if "@" not in addr:
         return None
     local, domain = addr.rsplit("@", 1)
     if domain not in [d.lower() for d in cfg.domains]:
         return None
-    prefix = cfg.verify_localpart.lower() + "+"
+    vl = cfg.verify_localpart.lower()
+    if local == vl:
+        return ""
+    prefix = vl + "+"
     if not local.startswith(prefix):
         return None
     return local[len(prefix):]
+
+
+def _reply_address(cfg: Config, token: str, domain: str) -> str:
+    """Absender-/Reply-Adresse der Challenge. Ohne Token-Adressierung immer
+    dieselbe Adresse -> Reputationsaufbau beim Empfaenger-Provider."""
+    if cfg.use_token_address:
+        return f"{cfg.verify_localpart}+{token}@{domain}"
+    return f"{cfg.verify_localpart}@{domain}"
+
+
+def _referenced_msgids(msg: Message | None):
+    """Message-IDs aus In-Reply-To und References einer Antwort."""
+    if msg is None:
+        return []
+    ids = []
+    for hdr in ("In-Reply-To", "References"):
+        val = msg.get(hdr)
+        if val:
+            ids.extend(re.findall(r"<[^>]+>", val))
+    return ids
+
+
+def _resolve_pending(cfg: Config, token: str, sender: str, msg: Message | None):
+    """Findet den wartenden Absender zu einer Verify-Antwort.
+    Reihenfolge: Token (falls vorhanden) -> Message-ID der Challenge -> Absender."""
+    if token:
+        row = db.find_by_token(token)
+        if row:
+            return row
+    for mid in _referenced_msgids(msg):
+        row = db.find_by_msgid(mid)
+        if row:
+            return row
+    row = db.get_sender(sender)
+    if row and row["status"] == "waiting":
+        return row
+    return None
 
 
 def _recipient_domain_ok(cfg: Config, rcpt: str) -> bool:
@@ -253,9 +312,13 @@ def _send_challenge(cfg: Config, sender: str) -> None:
     domain = row["challenge_domain"] or cfg.primary_domain
     try:
         png = captcha.render(row["captcha_answer"], cfg.captcha_width, cfg.captcha_height)
-        reply_addr = f"{cfg.verify_localpart}+{row['token']}@{domain}"
-        mailer.send(cfg, mailer.build_challenge(cfg, sender, reply_addr,
-                                                row["captcha_answer"], png))
+        reply_addr = _reply_address(cfg, row["token"], domain)
+        challenge = mailer.build_challenge(cfg, sender, reply_addr,
+                                           row["captcha_answer"], png)
+        mailer.send(cfg, challenge)
+        # Message-ID merken: darueber wird die Antwort spaeter zugeordnet.
+        if challenge["Message-ID"]:
+            db.set_challenge_msgid(sender, challenge["Message-ID"])
         _log(syslog.LOG_INFO, f"Challenge an {sender} gesendet (Mandant {domain})")
     except Exception as e:
         _log(syslog.LOG_ERR, f"Challenge-Versand an {sender} fehlgeschlagen: {e}")
@@ -264,9 +327,9 @@ def _send_challenge(cfg: Config, sender: str) -> None:
 # ----------------------------------------------------------------- Verify
 
 def _handle_verify(cfg: Config, sender: str, token: str, msg: Message | None) -> int:
-    row = db.find_by_token(token)
+    row = _resolve_pending(cfg, token, sender, msg)
     if row is None:
-        _log(syslog.LOG_INFO, f"verify: unbekannter Token von {sender}")
+        _log(syslog.LOG_INFO, f"verify: keine offene Challenge zu {sender} gefunden")
         return 0  # verschlucken
     target = row["email"]
     domain = row["challenge_domain"] or cfg.primary_domain
@@ -301,9 +364,12 @@ def _handle_verify(cfg: Config, sender: str, token: str, msg: Message | None) ->
         db.set_waiting(target, newtok, code, domain)   # Tenant-Domain beibehalten
         try:
             png = captcha.render(code, cfg.captcha_width, cfg.captcha_height)
-            reply_addr = f"{cfg.verify_localpart}+{newtok}@{domain}"
-            mailer.send(cfg, mailer.build_challenge(cfg, target, reply_addr, code,
-                                                    png, retry=True))
+            reply_addr = _reply_address(cfg, newtok, domain)
+            retry_msg = mailer.build_challenge(cfg, target, reply_addr, code,
+                                               png, retry=True)
+            mailer.send(cfg, retry_msg)
+            if retry_msg["Message-ID"]:
+                db.set_challenge_msgid(target, retry_msg["Message-ID"])
         except Exception as e:
             _log(syslog.LOG_ERR, f"Re-Challenge an {target} fehlgeschlagen: {e}")
     return 0
@@ -401,7 +467,7 @@ def main(argv) -> int:
     # 1) Ist eine CAPTCHA-Antwort dabei?
     for rcpt in recipients:
         token = _match_verify(cfg, rcpt)
-        if token:
+        if token is not None:      # "" = feste Adresse verify@, "<tok>" = Subadresse
             return _handle_verify(cfg, sender, token, msg)
 
     # 2) Normale eingehende Mail an die geschuetzte Domain

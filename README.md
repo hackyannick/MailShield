@@ -38,23 +38,28 @@ an dieser Stelle die ausgehenden Challenges (siehe `DKIM-SETUP.md`).
 
 - **Stateful Challenge-Response** mit drei Zustaenden (unknown / waiting / verified)
 - **Inline-CAPTCHA** als CID-Bild direkt im HTML-Body (kein klassischer Anhang)
+- **Feste Absenderadresse** (`verify@<domain>`) fuer alle Challenges, damit beim
+  Empfaenger-Provider Absender-Reputation entsteht; die Antwort wird ueber die
+  Message-ID der Challenge zugeordnet (optional weiterhin `verify+<token>@`)
 - **Loop-Protection:** wartende Absender werden still quarantaeniert - keine
   Auto-Reply-Ping-Pong-Schleifen mit anderen Bots
 - **Mandantentrennung:** mehrere geschuetzte Domains; die Challenge kommt
   tenant-rein aus der Domain des jeweiligen Empfaengers
 - **Open-Relay-Schutz, dreifach** (Postfix `smtpd_relay_restrictions`,
   Loopback-only `mynetworks`, plus App-seitige Empfaenger-Domain-Pruefung)
-- **Backscatter-Schutz:** Null-Sender/Bounces und als automatisiert erkannte
-  Mail (Bulk, `Auto-Submitted`, `no-reply@...`) bekommen nie eine Challenge;
-  zusaetzlich `max_challenges_per_hour` als Deckel
+- **Backscatter-Schutz:** Null-Sender, VERP-/Bounce-Adressen (`bounce+...`,
+  `msprvs1=...`, Hex-Localparts) und als automatisiert erkannte Mail (Bulk,
+  `Auto-Submitted`, `no-reply@...`) bekommen nie eine Challenge; zusaetzlich
+  `max_challenges_per_hour` als Deckel
 - **Manueller Bypass** fuer legitime Maschinen-Mail (2FA, Passwort-Resets) ueber
   die CLI
 - **Harte Blacklist:** `mailshield block <adresse>` sperrt einen Absender und
   loescht seine Quarantaene. Beim **naechsten** Zustellversuch bekommt er **genau
   einmal** eine Ablehnungs-Mail (rotes Kreuz), danach wird jede Mail still
   verworfen. `--no-notify` sperrt komplett stumm.
-- **Erfolgs-/Ablehnungs-Mails** im gleichen Layout wie die Challenge, mit
-  programmatisch erzeugtem gruenem Haken bzw. rotem Kreuz (inline, CID)
+- **Erfolgs-/Ablehnungs-Mails** im gleichen Layout wie die Challenge, mit einem
+  per CSS gezeichneten gruenen Haken bzw. roten Kreuz (kein Bild-Anhang - rendert
+  zuverlaessig in jedem Client)
 - **Dynamische Eskalation:** verifizierte Absender bei Verdacht erneut challengen
 - **DKIM-ready:** OpenDKIM-Vorlagen fuer Multi-Domain-Signierung (getrennt vom
   vorhandenen Mailserver-Signer)
@@ -95,8 +100,8 @@ DKIM-Signierung der Challenges: **[DKIM-SETUP.md](DKIM-SETUP.md)**.
 Die wichtigsten Felder (vollstaendig in `config.yaml.example`):
 
 ```yaml
-domains: [example.com, example.org]   # alle geschuetzten Mandanten-Domains
-primary_domain: example.com           # Fallback fuer die Verify-Adresse
+domains: [hackdv.com, sled-compliance.com]   # alle geschuetzten Mandanten-Domains
+primary_domain: hackdv.com            # Fallback fuer die Verify-Adresse
 reinject_host: 127.0.0.1              # Bypass-smtpd (siehe master.cf)
 reinject_port: 10026
 captcha_length: 6

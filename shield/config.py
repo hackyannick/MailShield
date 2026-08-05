@@ -26,9 +26,16 @@ class Config:
     quarantine_dir: str = "/var/lib/mailshield/quarantine"
 
     # Domains
-    domains: List[str] = field(default_factory=lambda: ["example.com"])
-    primary_domain: str = "example.com"
+    domains: List[str] = field(default_factory=lambda: ["hackdv.com", "sled-compliance.com"])
+    primary_domain: str = "hackdv.com"
     verify_localpart: str = "verify"
+    # False (Default): Challenges kommen von der FESTEN Adresse verify@<domain>.
+    #   Der Empfaenger-Provider sieht dann immer denselben Absender und kann
+    #   Reputation aufbauen ("Kein Spam"-Klicks wirken dauerhaft). Die Zuordnung
+    #   der Antwort laeuft ueber die Message-ID der Challenge (In-Reply-To/
+    #   References) mit Fallback auf die Absenderadresse.
+    # True: alte Variante mit verify+<token>@<domain> (Subadressierung).
+    use_token_address: bool = False
 
     # Reinjection / Bypass-smtpd (siehe master.cf)
     reinject_host: str = "127.0.0.1"
@@ -48,8 +55,13 @@ class Config:
     max_attempts: int = 3
     send_confirmation: bool = True
     confirmation_subject: str = "Vielen Dank - Ihre E-Mail wurde zugestellt"
-    # Harte Blacklist: Betreff + Text der Ablehnungs-/Sperr-Mail (rotes Kreuz)
+    # Ueberschrift der Erfolgs-/Freischaltungsmail (gruener Haken)
+    confirm_heading: str = "Freigeschaltet"
+    # Harte Blacklist: Betreff, Ueberschrift und Text der Ablehnungsmail (rotes Kreuz)
     reject_subject: str = "Ihre E-Mail wurde abgewiesen"
+    reject_heading: str = "Gesperrt"
+    # Optionale Fusszeile unter allen automatischen Mails (leer = aus)
+    footer_text: str = ""
     reject_message: str = (
         "Ihre E-Mail wurde von MailShield verworfen und geloescht. Sie haben sich "
         "nicht an die Regeln gehalten und wurden gesperrt. Bitte verwenden Sie andere "

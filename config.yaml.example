@@ -16,6 +16,16 @@ domains:
 primary_domain: hackdv.com
 # Lokaler Teil der Verify-Adresse: verify+<token>@<domain>
 verify_localpart: verify
+# Absenderadresse der Challenges:
+#   false (Default) -> feste Adresse verify@<domain>
+#       Der Empfaenger-Provider (Gmail/Outlook) sieht immer denselben Absender und
+#       baut Reputation auf; "Kein Spam"-Klicks wirken dauerhaft. Die Zuordnung der
+#       Antwort laeuft ueber die Message-ID der Challenge (In-Reply-To/References),
+#       mit Fallback auf die Absenderadresse.
+#   true  -> alte Variante verify+<token>@<domain> (Subadressierung).
+#       Technisch praezise, aber die From-Adresse ist bei jeder Challenge anders,
+#       wodurch beim Empfaenger nie Absender-Reputation entsteht.
+use_token_address: false
 
 # --- Reinjection / Bypass-smtpd (siehe postfix/master.cf.snippet) ----------
 reinject_host: 127.0.0.1
@@ -39,10 +49,17 @@ confirmation_subject: "Vielen Dank - Ihre E-Mail wurde zugestellt"
 
 # --- Harte Blacklist (CLI: mailshield block <adresse>) ---------------------
 reject_subject: "Ihre E-Mail wurde abgewiesen"
+reject_heading: "Gesperrt"
 reject_message: >-
-  Ihre E-Mail wurde von MailShield verworfen und geloescht. Sie haben sich nicht
-  an die Regeln gehalten und wurden gesperrt. Bitte verwenden Sie andere
-  Kommunikationswege.
+  Ihre E-Mail wurde von MailShield verworfen und geloescht. Aufgrund von
+  Richtlinienverstoessen ist dieser Absender dauerhaft blockiert. Eine
+  Kommunikation ueber diesen Kanal ist ausgeschlossen.
+
+# Ueberschrift der Erfolgs-/Freischaltungsmail (gruener Haken)
+confirm_heading: "Freigeschaltet"
+
+# Optionale Fusszeile unter allen automatischen Mails (leer lassen = aus)
+footer_text: ""
 
 # --- Backscatter-/Loop-Schutz ---------------------------------------------
 # Envelope-Sender, die NIE eine Challenge bekommen (Bounces etc.).

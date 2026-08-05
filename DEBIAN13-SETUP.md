@@ -131,7 +131,7 @@ swaks --to postmaster@hackdv.com --server 10.0.201.6:25
 swaks --to postmaster@hackdv.com --server 127.0.0.1:10026
 
 # c) Ausgehend über die FTDv (Challenge-Weg) -> kommt es an?
-swaks --to DEIN_POSTFACH@example.com --from verify@hackdv.com
+swaks --to postmaster@hackdv.com --from verify@hackdv.com
 ```
 
 Erst wenn a–c sauber sind, die **Inbound-NAT :25 auf 10.0.201.5** umlegen und

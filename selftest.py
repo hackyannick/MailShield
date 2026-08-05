@@ -37,7 +37,7 @@ def run(sender, recipients, raw):
     db.connect(cfg.db_path)
     for r in recipients:
         tok = f._match_verify(cfg, r)
-        if tok:
+        if tok is not None:
             from email import message_from_bytes
             return f._handle_verify(cfg, sender.lower(), tok, message_from_bytes(raw))
     from email import message_from_bytes
@@ -73,8 +73,8 @@ cid_ref = m.group(1) if m else ""
 check(img_parts and img_parts[0]["Content-ID"] == f"<{cid_ref}>",
       "Challenge: img-src cid passt zum Content-ID des Bildes")
 reply_addr = challenge["Reply-To"]
-check(reply_addr.startswith("verify+") and reply_addr.endswith("@hackdv.com"),
-      f"Challenge: Reply-To ist verify+token ({reply_addr})")
+check(reply_addr == "verify@hackdv.com",
+      f"Challenge: Reply-To ist feste Verify-Adresse ({reply_addr})")
 
 # Loesung aus DB holen (das echte CAPTCHA-Bild ist verrauscht)
 db.connect(load_config().db_path)
@@ -224,23 +224,96 @@ run("boese@spammer.tld", ["boss@hackdv.com"],
 check(len(SENT) == 0 and len(RELAYED) == 0, "blacklist: 2. Mail -> still verworfen (keine weitere Ablehnung)")
 check(len(db.pending_for("boese@spammer.tld")) == 0, "blacklist: nichts quarantaeniert")
 
-# 15) Ablehnungs-Mail (rotes Kreuz) korrekt aufgebaut
+# 15) Ablehnungs-Mail (rotes Kreuz): CSS-Badge, KEIN Bild-Anhang
 from shield import mailer as _m
 rej = _m.build_rejection(load_config(), "boese@spammer.tld", "hackdv.com")
 rhtml = rej.get_body(preferencelist=("html",)).get_content()
 rimg = [p for p in rej.walk() if p.get_content_maintype() == "image"]
-check("cid:" in rhtml and len(rimg) == 1 and rimg[0].get_content_disposition() == "inline",
-      "blacklist: Ablehnungs-Mail hat inline rotes Kreuz (CID)")
-check("gesperrt" in rej.get_body(preferencelist=("plain",)).get_content().lower(),
-      "blacklist: Ablehnungstext enthaelt Sperr-Hinweis")
+check(len(rimg) == 0, "blacklist: Ablehnungs-Mail hat KEINEN Bild-Anhang (CSS-Badge)")
+check("&#10005;" in rhtml and "border-radius:36px" in rhtml,
+      "blacklist: rotes Kreuz als CSS-Kreis im HTML")
+_c = load_config()
+check(_c.reject_heading in rhtml,
+      f"blacklist: konfigurierte Ueberschrift verwendet ({_c.reject_heading})")
+check(_c.reject_message.split(".")[0][:30] in
+      rej.get_body(preferencelist=("plain",)).get_content(),
+      "blacklist: konfigurierter Ablehnungstext im Plaintext")
 
-# 16) Bestaetigungs-Mail (gruener Haken) korrekt aufgebaut
+# 16) Bestaetigungs-Mail (gruener Haken): CSS-Badge, KEIN Bild-Anhang
 conf = _m.build_confirmation(load_config(), "carol@extern.de", 2, "hackdv.com")
 chtml = conf.get_body(preferencelist=("html",)).get_content()
 cimg = [p for p in conf.walk() if p.get_content_maintype() == "image"]
-check("cid:" in chtml and len(cimg) == 1 and cimg[0].get_content_disposition() == "inline",
-      "erfolg: Bestaetigungs-Mail hat inline gruenen Haken (CID)")
-check("freigeschaltet" in chtml.lower(), "erfolg: Bestaetigung nennt Freischaltung")
+check(len(cimg) == 0, "erfolg: Bestaetigungs-Mail hat KEINEN Bild-Anhang (CSS-Badge)")
+check("&#10003;" in chtml and "border-radius:36px" in chtml,
+      "erfolg: gruener Haken als CSS-Kreis im HTML")
+check(_c.confirm_heading in chtml,
+      f"erfolg: konfigurierte Ueberschrift verwendet ({_c.confirm_heading})")
+
+# 17) Feste Verify-Adresse: Challenge kommt von verify@ (kein Token in der Adresse)
+os.environ["MAILSHIELD_CONFIG"] = cfgpath
+db.connect(load_config().db_path)
+db.reset_sender("frank@extern.de")
+SENT.clear()
+run("frank@extern.de", ["boss@hackdv.com"],
+    mail("frank@extern.de", "boss@hackdv.com", "Anfrage", "hallo"))
+check(len(SENT) == 1, "feste-adresse: Challenge gesendet")
+ch = SENT[0][2]
+check(ch["Reply-To"] == "verify@hackdv.com",
+      f"feste-adresse: Reply-To ohne Token ({ch['Reply-To']})")
+check("verify@hackdv.com" in ch["From"] and "+" not in ch["From"].split("<")[-1],
+      f"feste-adresse: From ohne Token ({ch['From']})")
+ch_msgid = ch["Message-ID"]
+db.connect(load_config().db_path)
+check(db.get_sender("frank@extern.de")["challenge_msgid"] == ch_msgid,
+      "feste-adresse: Message-ID der Challenge gespeichert")
+
+# 18) Antwort an verify@ wird ueber In-Reply-To korrekt zugeordnet
+code = db.get_sender("frank@extern.de")["captcha_answer"]
+RELAYED.clear(); SENT.clear()
+reply = (f"From: frank@extern.de\r\nTo: verify@hackdv.com\r\n"
+         f"Subject: Re: Bestaetigung\r\nIn-Reply-To: {ch_msgid}\r\n"
+         f"References: {ch_msgid}\r\n"
+         f"Content-Type: text/plain; charset=utf-8\r\n\r\n{code}\r\n").encode()
+run("frank@extern.de", ["verify@hackdv.com"], reply)
+db.connect(load_config().db_path)
+check(db.get_sender("frank@extern.de")["status"] == "verified",
+      "feste-adresse: Verify ueber In-Reply-To erfolgreich")
+check(len(RELAYED) == 1, "feste-adresse: geparkte Mail zugestellt")
+
+# 19) Fallback: Antwort ohne In-Reply-To wird ueber den Absender zugeordnet
+db.reset_sender("gina@extern.de")
+SENT.clear()
+run("gina@extern.de", ["boss@hackdv.com"],
+    mail("gina@extern.de", "boss@hackdv.com", "Frage", "text"))
+db.connect(load_config().db_path)
+code2 = db.get_sender("gina@extern.de")["captcha_answer"]
+RELAYED.clear()
+run("gina@extern.de", ["verify@hackdv.com"],
+    mail("gina@extern.de", "verify@hackdv.com", "Re: Bestaetigung", code2))
+db.connect(load_config().db_path)
+check(db.get_sender("gina@extern.de")["status"] == "verified",
+      "feste-adresse: Fallback ueber Absenderadresse funktioniert")
+
+# 20) VERP-/Bounce-Absender bekommen keine Challenge (Reputationsschutz)
+for verp in ["bounce+585af8.1a95e6-x=y.com@bounce.example",
+             "msprvs1=20676xgzi92p-=bounces-1898-1322@example.com",
+             "20260805021027b8b6a74587d94895a05c6c3145@example.com"]:
+    db.reset_sender(verp)
+    SENT.clear()
+    run(verp, ["boss@hackdv.com"], mail(verp, "boss@hackdv.com", "Auto", "x"))
+    check(len(SENT) == 0, f"verp: keine Challenge an {verp.split('@')[0][:22]}")
+
+# 21) Optionaler Footer: erscheint nur wenn konfiguriert, in HTML UND Plaintext
+import copy as _copy
+_fc = _copy.copy(load_config()); _fc.footer_text = "TESTFOOTER-XYZ"
+_m2 = _m.build_rejection(_fc, "x@y.de", "hackdv.com")
+check("TESTFOOTER-XYZ" in _m2.get_body(preferencelist=("html",)).get_content()
+      and "TESTFOOTER-XYZ" in _m2.get_body(preferencelist=("plain",)).get_content(),
+      "footer: konfigurierter Footer in HTML und Plaintext")
+_fc.footer_text = ""
+_m3 = _m.build_rejection(_fc, "x@y.de", "hackdv.com")
+check("TESTFOOTER-XYZ" not in _m3.get_body(preferencelist=("html",)).get_content(),
+      "footer: leerer Footer erzeugt keine Zeile")
 
 print()
 print("ERGEBNIS:", "ALLE TESTS BESTANDEN" if ok else "FEHLER")

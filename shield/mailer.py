@@ -10,7 +10,6 @@ import smtplib
 from email.message import EmailMessage
 from email.utils import formatdate, make_msgid
 
-from . import icons
 
 
 def _relay():
@@ -56,6 +55,7 @@ def build_challenge(cfg, to_addr: str, reply_addr: str, code: str,
         "Sie den Code in die erste Zeile Ihrer Antwort.\n\n"
         "Kann Ihr Programm das Bild nicht anzeigen, wenden Sie sich bitte auf einem\n"
         "anderen Weg an den Empfänger.\n"
+        + _footer_text(cfg)
     )
 
     html = f"""\
@@ -74,7 +74,7 @@ def build_challenge(cfg, to_addr: str, reply_addr: str, code: str,
      Code in die <strong>erste Zeile</strong> Ihrer Antwort.</p>
   <p style="color:#777;font-size:12px">Diese Prüfung dient dazu, automatisierte
      Zusendungen von echten Absendern zu unterscheiden. Sie muss nur einmal gelöst
-     werden.</p>
+     werden.</p>{_footer_html(cfg)}
 </body></html>"""
 
     msg.set_content(text)
@@ -85,10 +85,25 @@ def build_challenge(cfg, to_addr: str, reply_addr: str, code: str,
     return msg
 
 
-def _badge_layout(cid_ref: str, accent: str, heading: str,
+def _footer_html(cfg) -> str:
+    """Optionale Fusszeile (config: footer_text). Leer = keine Zeile."""
+    txt = (getattr(cfg, "footer_text", "") or "").strip()
+    if not txt:
+        return ""
+    safe = txt.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    return f'\n  <p style="color:#2e7d32;font-size:12px;margin-top:14px">{safe}</p>'
+
+
+def _footer_text(cfg) -> str:
+    txt = (getattr(cfg, "footer_text", "") or "").strip()
+    return f"\n{txt}\n" if txt else ""
+
+
+def _badge_layout(cfg, glyph: str, accent: str, heading: str,
                   intro_html: str, after_html: str = "") -> str:
-    """Gemeinsames Layout fuer Bestaetigung/Ablehnung: zentriertes Badge in einer
-    Box, farbige Ueberschrift, Textabsaetze - im Stil der Challenge-Mail."""
+    """Layout fuer Bestaetigung/Ablehnung: ein per CSS gezeichneter farbiger Kreis
+    mit weissem Unicode-Zeichen (Haken/Kreuz). Reiner HTML/CSS-Text - rendert in
+    jedem Client zuverlaessig und taucht NIE als Anhang auf (kein CID-Bild)."""
     return f"""\
 <html><head><meta charset="utf-8"></head>
 <body style="font-family:Arial,Helvetica,sans-serif;color:#222;max-width:520px">
@@ -96,16 +111,33 @@ def _badge_layout(cid_ref: str, accent: str, heading: str,
   {intro_html}
   <div style="margin:16px 0;padding:18px;border:1px solid #ddd;border-radius:8px;
               background:#fafafa;text-align:center">
-    <img src="cid:{cid_ref}" alt="" width="72" height="72" style="max-width:72px"/>
+    <table role="presentation" cellpadding="0" cellspacing="0" width="72"
+           style="margin:0 auto;width:72px">
+      <tr><td align="center" valign="middle" width="72" height="72"
+             style="width:72px;height:72px;background:{accent};border-radius:36px;
+             color:#ffffff;font-size:38px;font-weight:bold;text-align:center;
+             line-height:72px;mso-line-height-rule:exactly;
+             font-family:Arial,Helvetica,sans-serif">{glyph}</td></tr>
+    </table>
   </div>
   {after_html}
-  <p style="color:#777;font-size:12px">Automatische Nachricht von MailShield.</p>
+  <p style="color:#777;font-size:12px">Automatische Nachricht von MailShield.</p>{_footer_html(cfg)}
 </body></html>"""
 
 
+# Unicode-Glyphen als HTML-Entities (kein Emoji-Rendering, nimmt die weisse Farbe an)
+_CHECK = "&#10003;"   # U+2713 CHECK MARK
+_CROSS = "&#10005;"   # U+2715 MULTIPLICATION X
+
+
 def build_confirmation(cfg, to_addr: str, delivered: int,
-                       domain: str | None = None) -> EmailMessage:
-    """Erfolgs-/Freischaltungs-Mail mit gruenem Haken (inline, CID)."""
+                       domain: str | None = None,
+                       in_reply_to: str | None = None) -> EmailMessage:
+    """Erfolgs-/Freischaltungs-Mail mit gruenem Haken (inline, CID).
+
+    in_reply_to: Message-ID der Absender-Antwort - faedelt die Bestaetigung in
+    denselben Thread ein (bessere Zustellung/Bild-Anzeige bei Gmail & Co.).
+    """
     domain = domain or cfg.primary_domain
     label = cfg.domain_labels.get(domain, cfg.challenge_from_name)
     msg = EmailMessage()
@@ -114,23 +146,25 @@ def build_confirmation(cfg, to_addr: str, delivered: int,
     msg["Subject"] = cfg.confirmation_subject
     msg["Date"] = formatdate(localtime=True)
     msg["Message-ID"] = make_msgid(domain=domain)
+    if in_reply_to:
+        msg["In-Reply-To"] = in_reply_to
+        msg["References"] = in_reply_to
     msg["Auto-Submitted"] = "auto-replied"
     msg["X-Auto-Response-Suppress"] = "All"
 
-    cid = make_msgid(domain=domain)
-    cid_ref = cid[1:-1]
     nplural = "s" if delivered != 1 else ""     # E-Mail(s)
     vplural = "n" if delivered != 1 else ""      # wurde(n)
 
     text = (
-        "Freigeschaltet\n"
-        "==============\n\n"
+        f"{cfg.confirm_heading}\n"
+        f"{'=' * len(cfg.confirm_heading)}\n\n"
         "Vielen Dank – Ihre Adresse ist nun freigeschaltet.\n"
         f"{delivered} zurückgehaltene E-Mail{nplural} wurde{vplural} soeben zugestellt.\n"
         "Kuenftige Nachrichten werden ohne weitere Pruefung zugestellt.\n"
+        + _footer_text(cfg)
     )
     html = _badge_layout(
-        cid_ref, "#2e7d32", "Freigeschaltet",
+        cfg, _CHECK, "#2e7d32", cfg.confirm_heading,
         "<p>Vielen Dank – Ihre Adresse ist nun freigeschaltet.</p>",
         f"<p>{delivered} zur\u00fcckgehaltene E-Mail{nplural} wurde{vplural} soeben "
         "zugestellt. K\u00fcnftige Nachrichten werden ohne weitere Pr\u00fcfung "
@@ -139,8 +173,6 @@ def build_confirmation(cfg, to_addr: str, delivered: int,
 
     msg.set_content(text)
     msg.add_alternative(html, subtype="html")
-    msg.get_payload()[1].add_related(icons.check_png(), maintype="image",
-                                     subtype="png", cid=cid)
     return msg
 
 
@@ -159,19 +191,15 @@ def build_rejection(cfg, to_addr: str, domain: str | None = None) -> EmailMessag
     msg["X-Auto-Response-Suppress"] = "All"
     msg["Precedence"] = "auto_reply"
 
-    cid = make_msgid(domain=domain)
-    cid_ref = cid[1:-1]
-
-    text = ("Gesperrt\n========\n\n" + cfg.reject_message + "\n")
+    text = (f"{cfg.reject_heading}\n{'=' * len(cfg.reject_heading)}\n\n"
+            + cfg.reject_message + "\n" + _footer_text(cfg))
     html = _badge_layout(
-        cid_ref, "#c62828", "Gesperrt",
+        cfg, _CROSS, "#c62828", cfg.reject_heading,
         f"<p>{cfg.reject_message}</p>",
     )
 
     msg.set_content(text)
     msg.add_alternative(html, subtype="html")
-    msg.get_payload()[1].add_related(icons.cross_png(), maintype="image",
-                                     subtype="png", cid=cid)
     return msg
 
 

@@ -56,10 +56,14 @@ def _init() -> None:
         CREATE INDEX IF NOT EXISTS idx_q_email ON quarantine(email, released);
         """
     )
-    # Migration bestehender DBs (Spalte ggf. nachziehen)
+    # Migration bestehender DBs (Spalten ggf. nachziehen)
     cols = {r[1] for r in _conn.execute("PRAGMA table_info(senders)")}
     if "challenge_domain" not in cols:
         _conn.execute("ALTER TABLE senders ADD COLUMN challenge_domain TEXT")
+    if "challenge_msgid" not in cols:
+        _conn.execute("ALTER TABLE senders ADD COLUMN challenge_msgid TEXT")
+    _conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_senders_msgid ON senders(challenge_msgid)")
     _conn.commit()
 
 
@@ -75,6 +79,22 @@ def find_by_token(token: str) -> Optional[sqlite3.Row]:
     return _conn.execute(
         "SELECT * FROM senders WHERE token = ?", (token,)
     ).fetchone()
+
+
+def find_by_msgid(msgid: str) -> Optional[sqlite3.Row]:
+    """Zuordnung einer Antwort ueber die Message-ID der Challenge
+    (steht im In-Reply-To/References der Antwort)."""
+    return _conn.execute(
+        "SELECT * FROM senders WHERE challenge_msgid = ?", (msgid,)
+    ).fetchone()
+
+
+def set_challenge_msgid(email: str, msgid: str) -> None:
+    _conn.execute(
+        "UPDATE senders SET challenge_msgid=? WHERE email=?",
+        (msgid, email.lower()),
+    )
+    _conn.commit()
 
 
 def set_waiting(email: str, token: str, answer: str,
